@@ -1,0 +1,112 @@
+------------------------------------------------------
+Dockerfile.patch
+------------------------------------------------------
+1c1
+< FROM tiredofit/nodejs:10-debian-latest
+---
+> FROM epandi-nodejs-10-debian-latest
+17c17,18
+< RUN echo "Package: libxml2*" > /etc/apt/preferences.d/libxml2 && \
+---
+> RUN c_rehash && \
+>     echo "Package: libxml2*" > /etc/apt/preferences.d/libxml2 && \
+26,27c27,28
+<     curl https://www.mongodb.org/static/pgp/server-${MONGODB_VERSION}.asc | apt-key add - && \
+<     echo "deb http://repo.mongodb.org/apt/debian buster/mongodb-org/${MONGODB_VERSION} main" > /etc/apt/sources.list.d/mongodb-org.list && \
+---
+> #    curl https://www.mongodb.org/static/pgp/server-${MONGODB_VERSION}.asc | apt-key add - && \
+> #    echo "deb http://repo.mongodb.org/apt/debian buster/mongodb-org/${MONGODB_VERSION} main" > /etc/apt/sources.list.d/mongodb-org.list && \
+29a31,33
+>     wget https://archive.raspbian.org/raspbian.public.key -O - | sudo apt-key add - && \
+>     echo "deb http://archive.raspbian.org/raspbian buster main contrib non-free" >>/etc/apt/sources.list && \
+>     echo "deb-src http://archive.raspbian.org/raspbian buster main contrib non-free" >>/etc/apt/sources.list && \
+87c91
+<                         linux-headers-amd64 \
+---
+>                         linux-headers-armmp \
+133c137
+<                     mongodb-org \
+---
+>                     mongodb \
+135d138
+<                     odbc-mariadb \
+166a170,182
+> ### Build MardiaDB connector
+>     apt-get install -y cmake gcc && \
+>     cd /usr/src && \
+>     git clone https://github.com/MariaDB/mariadb-connector-odbc.git && \
+>     cd mariadb-connector-odbc && \
+>     git checkout tags/3.1.1-ga && \
+>     mkdir build && \
+>     cd build && \
+>     cmake ../ -LH -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr/local -DWITH_SSL=OPENSSL\
+>     -DDM_DIR=/usr/lib/arm-linux-gnueabihf -DCMAKE_C_FLAGS_RELEASE:STRING="-w" && \
+>     cmake --build . --config Release && \
+>     make install && \
+>     \
+244c260
+<     ./configure --prefix=/usr --with-bcg729 --enable-$G72X_CPUHOST && \
+---
+>     ./configure CFLAGS='-march=armv7' --prefix=/usr --with-bcg729 --enable-$G72X_CPUHOST && \
+308c324
+< ADD install /
+---
+> ADD freepbx-15/install /
+\ No newline at end of file
+
+
+------------------------------------------------------
+\freepbx-15\install\etc\odbcinst.ini.patch
+------------------------------------------------------
+3,4c3,4
+< Driver = /usr/lib/x86_64-linux-gnu/odbc/libmaodbc.so
+< Setup = /usr/lib/x86_64-linux-gnu/odbc/libodbcmyS.so
+---
+> Driver = /usr/local/lib/libmaodbc.so
+> Setup = /usr/lib/arm-linux-gnueabihf/odbc/libodbcmyS.so
+5a6
+> 
+
+
+------------------------------------------------------
+\freepbx-15\install\etc\services.available\08-mongodb\run.patch
+------------------------------------------------------
+11c11
+< exec mongod --unixSocketPrefix=/var/run/mongodb --config /etc/mongod.conf run
+\ No newline at end of file
+---
+> exec mongod --unixSocketPrefix=/var/run/mongodb run
+\ No newline at end of file
+
+
+------------------------------------------------------
+\freepbx-15\install\etc\cont-finish.d\12-mongo.patch
+------------------------------------------------------
+7c7
+<   silent mongod --unixSocketPrefix=/var/run/mongodb --config /etc/mongod.conf --shutdown
+---
+>   silent mongod --unixSocketPrefix=/var/run/mongodb --shutdown
+
+
+------------------------------------------------------
+\freepbx-15\install\etc\cont-init.d\10-freepbx.patch
+------------------------------------------------------
+16c16
+<   mkdir -p /data
+---
+>   mkdir -p /data/db
+244c244
+<     silent mongod --unixSocketPrefix=/var/run/mongodb --config /etc/mongod.conf run &
+---
+>     silent mongod --unixSocketPrefix=/var/run/mongodb run &
+598c598
+<   silent mongod --unixSocketPrefix=/var/run/mongodb --config /etc/mongod.conf --shutdown
+---
+>   silent mongod --unixSocketPrefix=/var/run/mongodb --shutdown
+
+
+------------------------------------------------------
+\freepbx-15\install\etc\cont-init.d\08-mongodb.patch
+------------------------------------------------------
+8a9
+> 	mkdir -p /data/db

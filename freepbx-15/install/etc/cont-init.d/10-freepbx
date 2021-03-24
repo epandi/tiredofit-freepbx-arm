@@ -1,0 +1,607 @@
+#!/usr/bin/with-contenv bash
+
+source /assets/functions/00-container
+prepare_service single
+# shellcheck disable=SC2034
+PROCESS_NAME="freepbx"
+
+if var_false "$DB_EMBEDDED" ;  then
+  sanity_db
+  db_ready mariadb
+fi
+
+### Startup
+if [ ! -f /data/.installed ]; then
+  print_notice "Creating default configuration files"
+  mkdir -p /data/db
+  cp -R /assets/config/* /data/
+fi
+
+### Container version sanity check
+if [ -f /data/etc/asterisk/.asterisk_version ]; then
+  ASTERISK_VERSION_TMP=$(cat /data/etc/asterisk/.asterisk_version)
+  ASTERISK_VERSION_TMP=${ASTERISK_VERSION_TMP:0:2}
+
+  if [[ ${ASTERISK_VERSION_TMP//./} -lt "16" ]]; then
+    print_error "****"
+    print_error "***** This container has been detected to have FreePBX 14 installed"
+    print_error "***** You cannot perform an inplace upgrade to FreePBX 15 and Asterisk 16+"
+    print_error "***** To continue using this image switch to using tiredofit/freepbx:14-latest"
+    print_error "***** See https://github.com/tiredofit/docker-freepbx/issues/51 for more details"
+    print_error "***** This container will now cease to function"
+    print_error "****"
+    exit 1
+  fi
+fi
+
+print_notice "Setting file permissions"
+mkdir -p /data/etc/asterisk
+mkdir -p /data/var/lib/asterisk/{bin,playback}
+mkdir -p /data/var/spool/asterisk/{backup,cache,dictate,fax,meetme,monitor,outgoing,recording,system,tmp,voicemail}
+mkdir -p /data/var/run/asterisk
+mkdir -p /data/home/asterisk
+mkdir -p /home/asterisk
+ln -sf /data/home/asterisk /home/asterisk
+chown -R asterisk. /data
+chmod +x /usr/lib/asterisk/modules/*
+
+### Check if FreePBX installed
+if [ ! -f "$WEBROOT"/admin/index.php ]; then
+  print_info "New install detected - please wait while we fetch FreePBX - will take up to 30 minutes!"
+
+  if [ "$WEBROOT" != "/var/www/html" ]; then
+    print_notice "Custom installation webroot defined: '${WEBROOT}'"
+  fi
+
+  if var_false "$DB_EMBEDDED" ;  then
+    cat <<EOF > /etc/odbc.ini
+[MySQL-asteriskcdrdb]
+Description = MySQL connection to 'asteriskcdrdb' database
+driver = MySQL
+server = $DB_HOST
+User = $DB_USER
+Password = $DB_PASS
+database = $DB_NAME
+Port = $DB_PORT
+option = 3
+
+[asteriskcdrdb]
+Description = MySQL connection to 'asteriskcdrdb' database
+driver = MySQL
+server = $DB_HOST
+User = $DB_USER
+Password = $DB_PASS
+database = $DB_NAME
+Port = $DB_PORT
+option = 3
+EOF
+  fi
+
+  mkdir -p /usr/src/freepbx
+  cd /usr/src || exit
+  curl -ssL https://github.com/FreePBX/framework/archive/release/"${FREEPBX_VERSION}".tar.gz| tar xfz - --strip 1 -C /usr/src/freepbx
+
+  silent sudo -u asterisk gpg --refresh-keys --keyserver hkp://keyserver.ubuntu.com:80
+  silent sudo -u asterisk gpg --import /usr/src/freepbx/amp_conf/htdocs/admin/libraries/BMO/1588A7366BD35B34.key
+  silent sudo -u asterisk gpg --import /usr/src/freepbx/amp_conf/htdocs/admin/libraries/BMO/3DDB2122FE6D84F7.key
+  silent sudo -u asterisk gpg --import /usr/src/freepbx/amp_conf/htdocs/admin/libraries/BMO/86CE877469D2EAD9.key
+  silent sudo -u asterisk gpg --import /usr/src/freepbx/amp_conf/htdocs/admin/libraries/BMO/9F9169F4B33B4659.key
+  silent sudo -u asterisk gpg --import /usr/src/freepbx/amp_conf/htdocs/admin/libraries/BMO/B53D215A755231A3.key
+
+  cd /usr/src/freepbx || exit
+  cp -R /etc/odbc.ini /usr/src/freepbx/installlib/files/odbc.ini
+
+  touch /etc/asterisk/{acl,agents,amd,app_skel,ari,calendar,cdr,cdr_odbc,cel,cel_odbc,cel_tds,codecs,console,dundi,dongle,hep,modules,motif,ooh323,pjsip_wizard,pjproject,prometheus,res_parking,res_snmp.conf,res_stun_monitor,smdi,statsd,unistim,xmpp}.conf
+  if [ ! -f /etc/asterisk/extensions.lua ]; then
+    cat <<EOF > /etc/asterisk/extensions.lua
+extensions = {
+  ["internal"] = {
+    ["_1XX"] = function (context, extension)
+      app.dial('SIP/'..extension);
+
+      local dialstatus = channel["DIALSTATUS"]:get();
+      if dialstatus == 'BUSY' then
+        -- do something.......
+      elseif dialstatus == 'CHANUNAVAIL' then
+          -- do another thing
+          end;
+      end;
+  }
+}
+EOF
+  fi
+
+  if [ ! -f /etc/asterisk/dongle.conf ]; then
+    mkdir -p /var/lib/asterisk/smsdb
+    chown -RH asterisk. /var/lib/asterisk/smsdb
+
+    cat <<EOF > /etc/asterisk/dongle.conf
+[general]
+interval        = 15
+smsdb           = /var/lib/asterisk/smsdb
+csmsttl         = 600
+
+[defaults]
+context         = default
+group           = 0
+rxgain          = 0
+txgain          = 0
+autodeletesms   = yes
+resetdongle     = yes
+u2diag          = -1
+usecallingpres  = yes
+callingpres     = allowed_passed_screen
+disablesms      = no
+language        = en
+mindtmfgap      = 45
+mindtmfduration = 80
+mindtmfinterval = 200
+callwaiting     = auto
+disable         = no
+initstate       = start
+exten           = +00000000000
+dtmf            = relax
+
+;[dongle0]
+;audio          = /dev/ttyUSB1
+;data           = /dev/ttyUSB2
+;imei           = 000000000000000
+;imsi           = 000000000000000
+EOF
+  fi
+
+  print_notice "Starting Asterisk ${ASTERISK_VERSION} for the first time"
+  silent ./start_asterisk start
+
+  if [ ! -f "/var/run/asterisk/asterisk.pid" ]; then
+    print_error "Can't seem to start Asterisk.. exiting"
+    exit 1
+  fi
+
+  if var_false "$DB_EMBEDDED" ;  then
+    print_notice "Installing FreePBX $FREEPBX_VERSION source code"
+    sed -i "s/'default' => 'localhost',/'default' => '$DB_HOST',/g" /usr/src/freepbx/installlib/installcommand.class.php
+    sed -i "s/'default' => 'asteriskcdrdb',/'default' => '$DB_NAME',/g" /usr/src/freepbx/installlib/installcommand.class.php
+    sed -i "s/\$amp_conf\['CDRDBNAME'\] = \$answers\['cdrdbname'\];/\$amp_conf\['CDRDBNAME'\] = '$DB_NAME';/g" /usr/src/freepbx/installlib/installcommand.class.php
+    silent ./install -n --dbuser="$DB_USER" --dbpass="$DB_PASS" --dbname="$DB_NAME" --cdrdbname="$DB_NAME" --webroot="$WEBROOT"
+
+    cat <<EOF > /etc/freepbx.conf
+<?php
+\$amp_conf['AMPDBUSER'] = '$DB_USER';
+\$amp_conf['AMPDBPASS'] = '$DB_PASS';
+\$amp_conf['AMPDBPORT'] = '$DB_PORT';
+\$amp_conf['AMPDBHOST'] = '$DB_HOST';
+\$amp_conf['AMPDBNAME'] = '$DB_NAME';
+\$amp_conf['AMPDBENGINE'] = 'mysql';
+\$amp_conf['CDRDBNAME'] = '$DB_NAME';
+\$amp_conf['CDRDBHOST'] = '$DB_HOST';
+\$amp_conf['CDRDBNAME'] = '$DB_NAME';
+\$amp_conf['CDRDBUSER'] = '$DB_USER';
+\$amp_conf['CDRDBPASS'] = '$DB_PASS';
+\$amp_conf['CDRDBPORT'] = '$DB_PORT';
+\$amp_conf['CDRDBTYPE'] = 'mysql';
+require_once('$WEBROOT/admin/bootstrap.php');
+?>
+EOF
+  else
+    print_notice "Installing FreePBX $FREEPBX_VERSION source code (db embedded)"
+    silent ./install -n --webroot="$WEBROOT"
+  fi
+
+  sed -i '/^preload = chan_local.so$/d' /etc/asterisk/modules.conf
+
+  if [ ! -f "/usr/sbin/fwconsole" ]; then
+    print_error "Can't seem to locate /usr/sbin/fwconsole.. exiting"
+    exit 1
+  fi
+
+  print_notice "Enabling default modules:"
+  print_notice "- framework, core"
+  check_process
+  silent fwconsole ma downloadinstall framework core
+  silent fwconsole ma download cdr
+
+  if var_false "$DB_EMBEDDED" ;  then
+### CDR Hack
+    mysql -u"$DB_USER" -p"$DB_PASS" -h"$DB_HOST" -P"$DB_PORT" "$DB_NAME" < /usr/src/freepbx/installlib/SQL/cdr.sql
+    # shellcheck disable=SC2016
+    mysql -u"$DB_USER" -p"$DB_PASS" -h"$DB_HOST" -P"$DB_PORT" -e 'USE '"$DB_NAME"'; UPDATE freepbx_settings SET `value` = "'"$DB_HOST"'" WHERE keyword = "CDRDBHOST"; UPDATE freepbx_settings SET `value` = "'"$DB_NAME"'" WHERE keyword = "CDRDBNAME"; UPDATE freepbx_settings SET `value` = "'"$DB_PASS"'" WHERE keyword = "CDRDBPASS"; UPDATE freepbx_settings SET `value` = "'"$DB_USER"'" WHERE keyword = "CDRDBUSER"; UPDATE freepbx_settings SET `value` = "mysql" WHERE keyword = "CDRDBTYPE"; UPDATE freepbx_settings SET `value` = "'"$DB_PORT"'" WHERE keyword = "CDRDBPORT"; UPDATE freepbx_settings SET `value` = "cdr" WHERE keyword = "CDRDBTABLENAME";'
+    cp -R "$WEBROOT"/admin/modules/cdr/install.php "$WEBROOT"/admin/modules/cdr/.install.php
+    # shellcheck disable=SC2016
+    sed -i 's/\$db_host = !empty(\$db_host) ? \$db_host : "localhost";/\$db_host = !empty(\$db_host) ? \$db_host : "'"$DB_HOST"'";/g' "$WEBROOT"/admin/modules/cdr/install.php
+    # shellcheck disable=SC2016
+    sed -i 's/\$db_name = !empty(\$db_name) ? \$db_name : "asteriskcdrdb";/\$db_name = !empty(\$db_name) ? \$db_name : "'"$DB_NAME"'";/g' "$WEBROOT"/admin/modules/cdr/install.php
+    print_notice '** [freepbx] - cdr'
+    check_process
+    silent fwconsole ma install cdr
+    cp -R "$WEBROOT"/admin/modules/cdr/.install.php "$WEBROOT"/admin/modules/cdr/install.php
+  else
+    print_notice "- cdr (embedded db)"
+    check_process
+    silent fwconsole ma install cdr
+  fi
+
+  print_notice "- backup, callrecording, conferences, dashboard, featurecodeadmin, filestore, fw_langpacks, infoservices, languages, logfiles, music, recordings, sipsettings, soundlang, voicemail"
+  check_process
+  silent fwconsole ma downloadinstall backup callrecording conferences dashboard featurecodeadmin filestore fw_langpacks infoservices languages logfiles music recordings sipsettings soundlang voicemail
+  print_notice "- certman, userman, pm2"
+  check_process
+  silent fwconsole ma downloadinstall certman userman pm2
+  silent fwconsole setting SHOWLANGUAGE 1
+  silent fwconsole chown
+  silent fwconsole reload
+  chown -RH asterisk. /home/asterisk/.npm
+  print_notice "- ucp"
+### UCP fix https://community.freepbx.org/t/ucp-upgrade-error/58273
+  touch /usr/bin/icu-config
+  echo "icuinfo 2>/dev/null|grep \"version\"|sed 's/.*>\(.*\)<.*/\1/g'" > /usr/bin/icu-config
+  chmod +x /usr/bin/icu-config
+  check_process
+  silent fwconsole ma downloadinstall ucp
+
+  if var_true "$ENABLE_XMPP" ;  then
+    print_notice "- xmpp"
+    silent mongod --unixSocketPrefix=/var/run/mongodb run &
+    check_process
+    silent fwconsole ma downloadinstall xmpp
+    sed -i 's/uri: mongodb:\/\/localhost\/letschat/uri: mongodb:\/\/localhost:27017\/letschat?useNewUrlParser=true/g' "$WEBROOT"/admin/modules/xmpp/node/node_modules/lets-chat/settings.yml
+  fi
+
+  if [[ -v INSTALL_ADDITIONAL_MODULES ]] ; then
+    print_notice "Attempting to install additional FreePBX modules '${INSTALL_ADDITIONAL_MODULES}'"
+    modules=$(echo "${INSTALL_ADDITIONAL_MODULES}" | tr "," "\n")
+    for module in $modules
+    do
+      print_notice "- ${module}"
+      check_process
+      silent fwconsole ma downloadinstall "$module"
+    done
+  fi
+  silent fwconsole chown
+  silent fwconsole reload
+  silent fwconsole stop --immediate
+  print_info "Finished installation of FreePBX modules - proceeding with next phase of install"
+  cd /
+  rm -rf /usr/src/freepbx
+
+  touch /data/.installed
+  echo "$ASTERISK_VERSION" > /etc/asterisk/.asterisk-version
+fi
+
+### Data persistence workaround
+if [ ! -f /usr/sbin/fwconsole ]; then
+  ln -s /var/lib/asterisk/bin/fwconsole /usr/sbin/fwconsole
+fi
+
+if [ ! -f /usr/sbin/amportal ]; then
+  ln -s /var/lib/asterisk/bin/amportal /usr/sbin/amportal
+fi
+
+if [ ! -f /data/etc/amportal.conf ]; then
+  mkdir -p /data/etc
+  cp -R /etc/amportal.conf /data/etc/
+  rm -f /etc/amportal.conf
+  touch /data/etc/amportal.conf
+  chown asterisk. /data/etc/amportal.conf
+  ln -s /data/etc/amportal.conf /etc/amportal.conf
+else
+  ln -sf /data/etc/amportal.conf /etc/amportal.conf
+  touch /data/etc/amportal.conf
+fi
+
+if var_true "$DB_EMBEDDED" ;  then
+  if [ ! -f /data/etc/freepbx.conf ]; then
+    mkdir -p /data/etc
+    cp -R /etc/freepbx.conf /data/etc/
+    rm -f /etc/freepbx.conf
+    touch /data/etc/freepbx.conf
+    chown asterisk. /data/etc/freepbx.conf
+    ln -s /data/etc/freepbx.conf /etc/freepbx.conf
+  else
+    ln -sf /data/etc/freepbx.conf /etc/freepbx.conf
+    touch /data/etc/freepbx.conf
+  fi
+
+### Set RTP ports and fix a FreePBX bug with upgrades
+  print_notice "Setting RTP ports - start: '${RTP_START}' finish: '${RTP_FINISH}'"
+  mysql -e 'USE asterisk; ALTER TABLE featurecodes CHANGE column helptext helptext VARCHAR(10000); INSERT INTO sipsettings (keyword, data, seq, type) VALUES ("rtpstart","'"$RTP_START"'",1,0) ON DUPLICATE KEY UPDATE data="'"$RTP_START"'";INSERT INTO sipsettings (keyword, data, seq, type) VALUES ("rtpend","'"$RTP_FINISH"'",1,0) ON DUPLICATE KEY UPDATE data="'"$RTP_FINISH"'";'
+else
+### Setup dynamic configuration
+  print_notice "Setting configuration"
+  cat <<EOF > /etc/freepbx.conf
+<?php
+\$amp_conf['AMPDBUSER'] = '$DB_USER';
+\$amp_conf['AMPDBPASS'] = '$DB_PASS';
+\$amp_conf['AMPDBHOST'] = '$DB_HOST';
+\$amp_conf['AMPDBNAME'] = '$DB_NAME';
+\$amp_conf['AMPDBENGINE'] = 'mysql';
+\$amp_conf['CDRDBNAME'] = '$DB_NAME';
+\$amp_conf['CDRDBHOST'] = '$DB_HOST';
+\$amp_conf['CDRDBNAME'] = '$DB_NAME';
+\$amp_conf['CDRDBUSER'] = '$DB_USER';
+\$amp_conf['CDRDBPASS'] = '$DB_PASS';
+\$amp_conf['CDRDBTYPE'] = 'mysql';
+require_once('$WEBROOT/admin/bootstrap.php');
+?>
+EOF
+  cat <<EOF > /etc/odbc.ini
+[MySQL-asteriskcdrdb]
+Description = MySQL connection to 'asteriskcdrdb' database
+driver = MySQL
+server = $DB_HOST
+User = $DB_USER
+Password = $DB_PASS
+database = $DB_NAME
+Port = $DB_PORT
+option = 3
+
+[asteriskcdrdb]
+Description = MySQL connection to 'asteriskcdrdb' database
+driver = MySQL
+server = $DB_HOST
+User = $DB_USER
+Password = $DB_PASS
+database = $DB_NAME
+Port = $DB_PORT
+option = 3
+EOF
+### Set RTP ports and fix a FreePBX bug with upgrades
+  print_notice "Setting RTP ports - start: '${RTP_START}' finish: '${RTP_FINISH}'"
+  mysql -u"$DB_USER" -p"$DB_PASS" -h"$DB_HOST" -P"$DB_PORT" -e 'USE '"$DB_NAME"'; ALTER TABLE featurecodes CHANGE column helptext helptext VARCHAR(10000); INSERT INTO sipsettings (keyword, data, seq, type) VALUES ("rtpstart","'"$RTP_START"'",1,0) ON DUPLICATE KEY UPDATE data="'"$RTP_START"'";INSERT INTO sipsettings (keyword, data, seq, type) VALUES ("rtpend","'"$RTP_FINISH"'",1,0) ON DUPLICATE KEY UPDATE data="'"$RTP_FINISH"'";'
+fi
+
+if [ ! -f /etc/asterisk/cdr_adaptive_odbc.conf ]; then
+  cat <<EOF > /etc/asterisk/cdr_adaptive_odbc.conf
+[asteriskcdrdb]
+connection=asteriskcdrdb
+table=cdr
+alias start => calldate
+loguniqueid=yes
+EOF
+fi
+
+chown asterisk. /etc/freepbx.conf
+
+print_info "Starting Asterisk ${ASTERISK_VERSION}"
+
+if [ ! -f "/usr/sbin/fwconsole" ]; then
+  print_error "Can't seem to locate /usr/sbin/fwconsole.. Exiting. This is likely because the initial installation of FreePBX failed, and usually an upstream error. Try again by deleting all volumes and databases and starting from scratch before submitting an issue."
+  exit 1
+fi
+
+chown -RH asterisk. /etc/asterisk
+chown asterisk. /etc/amportal.conf
+
+### Custom file support
+if [ -d /assets/custom ] ; then
+  print_warn "Custom files found, copying over top of original.."
+  cp -R /assets/custom/* /
+  chown -R asterisk. /var/www/html
+  chown -RH asterisk. /var/lib/asterisk
+  chown -RH asterisk. /var/spool/asterisk
+fi
+
+## Execute Custom Scripts
+if [ -d /assets/custom-scripts/ ] ; then
+    print_warn "Found Custom Scripts to Execute"
+    for f in $(find /assets/custom-scripts/ -name \*.sh -type f); do
+        print_warn "Running Script ${f}"
+        ${f}
+    done
+fi
+
+chown -RH asterisk. /var/spool/asterisk
+rm -f /tmp/cron.error
+
+check_process
+silent fwconsole start
+
+### Apache setup
+cat >> /etc/apache2/conf-available/allowoverride.conf << EOF
+<Directory $WEBROOT>
+  AllowOverride All
+</Directory>
+EOF
+
+cat > /etc/apache2/sites-enabled/000-default.conf << EOF
+Listen 73
+
+ExtendedStatus On
+
+<VirtualHost *:73>
+CustomLog /dev/null common
+ErrorLog /dev/null
+
+<Location /server-status>
+    SetHandler server-status
+    Order deny,allow
+    Deny from all
+    Allow from localhost
+</Location>
+</VirtualHost>
+
+<VirtualHost *:$HTTP_PORT>
+EOF
+
+if var_true "$UCP_FIRST" ; then
+  # shellcheck disable=SC2129
+  echo '    DocumentRoot "'"$WEBROOT"'/ucp"' >> /etc/apache2/sites-enabled/000-default.conf
+  echo '    Alias "'"$ADMIN_DIRECTORY"'" "'"$WEBROOT"'/admin"' >> /etc/apache2/sites-enabled/000-default.conf
+  echo '    Alias "/ucp" "'"$WEBROOT"'/ucp"' >> /etc/apache2/sites-enabled/000-default.conf
+else
+  echo "    DocumentRoot ""$WEBROOT" >> /etc/apache2/sites-enabled/000-default.conf
+fi
+
+if var_true "$ENABLE_FOP" ;  then
+  echo '    Alias "'"$FOP_DIRECTORY"'" "/var/www/html/fop2"' >> /etc/apache2/sites-enabled/000-default.conf
+
+### Check to see if FOP enabled and exists (upgrade catcher)
+  if [ ! -f /usr/local/fop2/fop2_server ] ; then
+    print_info "Starting installation of Flash Operator Panel 2"
+
+### FOP2 installation
+    mkdir -p /data/usr/local/fop2
+    mkdir -p /var/log/apache2
+    cd /usr/src || exit
+    silent wget http://download.fop2.com/install_fop2.sh
+    chmod +x install_fop2.sh
+    silent ./install_fop2.sh
+    chown -RH asterisk. /usr/local/fop2
+    rm -rf /usr/src/*
+  fi
+fi
+
+cat >> /etc/apache2/sites-enabled/000-default.conf << EOF
+
+  ErrorLog /var/log/apache2/error.log
+  CustomLog /var/log/apache2/access.log common
+  <Location /server-status>
+    SetHandler server-status
+    Order deny,allow
+    Deny from all
+ </Location>
+</VirtualHost>
+EOF
+
+if [ "$VIRTUAL_PROTO" = "https" ] || var_true "$ENABLE_SSL" ;  then
+  print_notice "Enabling SSL"
+  mkdir -p /certs
+
+  if [ ! -f /certs/"${TLS_CERT}" ] && [ ! -f /certs/"${TLS_KEY}" ]; then
+    print_warn "No SSL certs found, autogenerating self-signed - WebRTC will not work with a self-signed certificate!"
+    cat <<EOF > /tmp/openssl.cnf
+[ req ]
+default_bits = 2048
+encrypt_key = yes
+distinguished_name = req_dn
+x509_extensions = cert_type
+prompt = no
+
+[ req_dn ]
+C=XX
+ST=XX
+L=Self Signed
+O=Freepbx
+OU=Freepbx
+CN=*
+emailAddress=hostmaster@local
+
+[ cert_type ]
+nsCertType = server
+EOF
+
+    silent openssl req -new -x509 -nodes -days 365 -config /tmp/openssl.cnf -out /certs/cert.pem -keyout /certs/key.pem
+    chmod 0600 /certs/key.pem
+    rm -f /tmp/openssl.cnf
+    TLS_CERT="cert.pem"
+    TLS_KEY="key.pem"
+  fi
+
+  silent a2enmod ssl
+  cat >> /etc/apache2/sites-enabled/000-default.conf << EOF
+<VirtualHost *:$HTTPS_PORT>
+    SSLEngine on
+    SSLCertificateFile "/certs/$TLS_CERT"
+    SSLCertificateKeyFile "/certs/$TLS_KEY"
+    ErrorLog /var/log/apache2/error.log
+    CustomLog /var/log/apache2/access.log common
+EOF
+
+  if var_true "$UCP_FIRST" ; then
+    # shellcheck disable=SC2129
+    echo '    DocumentRoot "'"$WEBROOT"'/ucp"' >> /etc/apache2/sites-enabled/000-default.conf
+    echo '    Alias "'"$ADMIN_DIRECTORY"'" "'"$WEBROOT"'/admin"' >> /etc/apache2/sites-enabled/000-default.conf
+    echo '    Alias "/ucp" "'"$WEBROOT"'/ucp"' >> /etc/apache2/sites-enabled/000-default.conf
+  else
+    echo "    DocumentRoot $WEBROOT" >> /etc/apache2/sites-enabled/000-default.conf
+  fi
+
+  if var_true "$ENABLE_FOP" ;  then
+    echo '    Alias "'"$FOP_DIRECTORY"'" "'"$WEBROOT"'/fop2"' >>/etc/apache2/sites-enabled/000-default.conf
+    sed -i 's/ssl_certificate_file=.*/ssl_certificate_file=\/certs\/'$TLS_CERT'/g' /usr/local/fop2/fop2.cfg
+    sed -i 's/ssl_certificate_key_file=.*/ssl_certificate_key_file=\/certs\/'$TLS_KEY'/g' /usr/local/fop2/fop2.cfg
+  fi
+
+  cat >> /etc/apache2/sites-enabled/000-default.conf << EOF
+    <Location /server-status>
+    SetHandler server-status
+    Order deny,allow
+    Deny from all
+  </Location>
+</VirtualHost>
+
+EOF
+fi
+
+### Write ports.conf
+cat > /etc/apache2/ports.conf <<EOF
+Listen $HTTP_PORT
+
+<IfModule ssl_module>
+  Listen $HTTPS_PORT
+</IfModule>
+
+<IfModule mod_gnutls.c>
+  Listen $HTTPS_PORT
+</IfModule>
+EOF
+
+silent a2enmod remoteip
+
+cat >> /etc/apache2/conf-available/remoteip.conf << EOF
+RemoteIPHeader X-Real-IP
+RemoteIPTrustedProxy 10.0.0.0/8
+RemoteIPTrustedProxy 172.16.0.0/12
+RemoteIPTrustedProxy 192.168.0.0/16
+EOF
+
+silent a2enconf allowoverride
+silent a2enconf remoteip.conf
+
+sed -iE 's/\(APACHE_RUN_USER=\)\(.*\)/\1asterisk/g' /etc/apache2/envvars
+sed -iE 's/\(APACHE_RUN_GROUP=\)\(.*\)/\1asterisk/g' /etc/apache2/envvars
+mkdir -p /var/log/apache2
+chown -R root:adm /var/log/apache2
+chown asterisk. /run/lock/apache2
+
+### Disable indexes if outside of regular webroot
+if [ "$WEBROOT" != "/var/www/html" ]; then
+  silent a2dismod autoindex -f
+fi
+
+sed -i 's/DirectoryIndex index.html index.cgi index.pl index.php index.xhtml index.htm/DirectoryIndex index.php index.html index.htm/g' /etc/apache2/mods-enabled/dir.conf
+
+### SMTP config
+if var_true "$ENABLE_SMTP" ;  then
+  echo 'sendmail_path="/usr/bin/msmtp -C /etc/msmtprc -t "' > /etc/php/"${PHP_VERSION}"/apache2/conf.d/smtp.ini
+  echo 'sendmail_path="/usr/bin/msmtp -C /etc/msmtprc -t "' > /etc/php/"${PHP_VERSION}"/cli/conf.d/smtp.ini
+  chown asterisk. /etc/msmtprc
+  chmod 0600 /etc/msmtprc
+fi
+
+### FOP2 setup
+if var_true "$ENABLE_FOP" ;  then
+  print_info "Starting operator panel"
+  chown -RH asterisk. /usr/local/fop2
+  rm -rf /var/run/fop2.*
+  mkdir -p /var/log/fop
+  chown -R asterisk. /var/log/fop
+  sed -i "s/manager_host=.*/manager_host=127.0.0.1/g" /usr/local/fop2/fop2.cfg
+  /usr/local/fop2/fop2_server -D
+fi
+
+chown asterisk:asterisk /usr/sbin/watson-transcription
+
+silent service apache2 restart
+
+if var_true "$ENABLE_XMPP" ;  then
+  silent mongod --unixSocketPrefix=/var/run/mongodb --shutdown
+fi
+
+if var_true "$UCP_FIRST" ; then
+   print_info "Web server started - container initialization completed - visit your http(s)://...${ADMIN_DIRECTORY} to administer"
+else
+   print_info "Web server started - container initialization completed - visit your http(s)://.../ to administer"
+fi
+
+liftoff

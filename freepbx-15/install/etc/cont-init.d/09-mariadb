@@ -1,0 +1,23 @@
+#!/usr/bin/with-contenv bash
+
+source /assets/functions/00-container
+prepare_service 10-freepbx
+# shellcheck disable=SC2034
+PROCESS_NAME="mariadb"
+
+if var_true "$DB_EMBEDDED" ;  then
+  silent service mysql stop
+  mkdir -p /var/lib/mysql
+
+  if [ ! -d /var/lib/mysql/mysql ]; then
+    print_info "New embedded database detected, setting up.."
+    cp -R /assets/config/var/lib/mysql/* /var/lib/mysql
+  fi
+
+  chown -R mysql. /var/lib/mysql
+  silent service mysql start
+else
+  print_info "No embedded database detected, skip.."
+fi
+
+liftoff
