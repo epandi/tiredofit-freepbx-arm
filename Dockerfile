@@ -108,13 +108,13 @@ FROM epandi-nodejs-10-debian-latest
 LABEL maintainer="Dave Conroy (dave at tiredofit dot ca)"
 
 ### Set defaults
-ENV ASTERISK_VERSION=17.9.3 \
+ENV ASTERISK_VERSION=18.3.0 \
     BCG729_VERSION=1.0.4 \
     DONGLE_VERSION=20200610 \
     G72X_CPUHOST=penryn \
     G72X_VERSION=0.1 \
     MONGODB_VERSION=4.2 \
-    PHP_VERSION=5.6 \
+    PHP_VERSION=7.3 \
     SPANDSP_VERSION=20180108 \
     RTP_START=18000 \
     RTP_FINISH=20000
