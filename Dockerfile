@@ -38,9 +38,6 @@ RUN set -x && \
             vim-tiny \
             wget \
             && \
-### Usbutils addon
-    apt-get install usbutils unzip autoconf automake && \
-    \  
 ### curl https://repo.zabbix.com/zabbix-official-repo.key | apt-key add - && \
 ### echo "deb http://repo.zabbix.com/zabbix/${ZABBIX_VERSION}/debian buster main" >>/etc/apt/sources.list && \
 ### echo "deb-src http://repo.zabbix.com/zabbix/${ZABBIX_VERSION}/debian buster main" >>/etc/apt/sources.list && \
@@ -272,6 +269,9 @@ RUN c_rehash && \
                     whois \
                     xmlstarlet && \
     \
+### Usbutils addon
+    apt-get install usbutils unzip autoconf automake && \
+    \  
 ### Add users
     addgroup --gid 2600 asterisk && \
     adduser --uid 2600 --gid 2600 --gecos "Asterisk User" --disabled-password asterisk && \
