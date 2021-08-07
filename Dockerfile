@@ -270,7 +270,7 @@ RUN c_rehash && \
                     xmlstarlet && \
     \
 ### Usbutils addon
-    apt-get install usbutils unzip autoconf automake && \
+    apt-get install usbutils unzip autoconf automake -y && \
     \  
 ### Add users
     addgroup --gid 2600 asterisk && \
