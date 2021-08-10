@@ -1,4 +1,4 @@
-# ********FreePBX 15, Asterisk 17/18 on Docker (Raspberry Pi).******** 
+# FreePBX 15, Asterisk 17/18 on Docker (Raspberry Pi). 
 
 An experimental fork of https://github.com/epandi/tiredofit-freepbx-arm.  
 
