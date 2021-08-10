@@ -92,7 +92,7 @@ services:
       - NET_ADMIN
     privileged: true
 ```
-***Accessing the USB modem:
+# Accessing the USB modem:
 
 You need to use sudo chmod 777 /dev/ttyUSB* on the host machine. 
 But, this is not persistent after reboot. To make it persistent after boot on your host machine
