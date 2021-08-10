@@ -1,4 +1,6 @@
-FreePBX 15, Asterisk 17/18 on Docker (Raspberry Pi). An experimental fork of https://github.com/epandi/tiredofit-freepbx-arm.  
+********FreePBX 15, Asterisk 17/18 on Docker (Raspberry Pi).******** 
+
+An experimental fork of https://github.com/epandi/tiredofit-freepbx-arm.  
 
 Properly working with IVR and call forwarding to an extension on a Raspberry pi 4 32-bit architecture.
 
@@ -24,6 +26,7 @@ Not working:
 FOP - automatic intallation script can't find the proper package.
 Example docker-compose.yaml (change tag to 18.15-alpha instead of 17.15-latest, if you want Asterisk 18 instead of Asterisk 17)
 
+'''
 version: '2'
 
 services:
@@ -88,7 +91,7 @@ services:
     cap_add:
       - NET_ADMIN
     privileged: true
-
+'''
 Accessing the USB modem:
 You need to use sudo chmod 777 /dev/ttyUSB* on the host machine. 
 But, this is not persistent after reboot. To make it persistent after boot on your host machine
