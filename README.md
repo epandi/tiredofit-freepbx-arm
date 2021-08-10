@@ -1,7 +1,5 @@
 # FreePBX 15, Asterisk 17/18 on Docker (Raspberry Pi). 
 
-An experimental fork of https://github.com/epandi/tiredofit-freepbx-arm.  
-
 Properly working with IVR and call forwarding to an extension on a Raspberry pi 4 32-bit architecture.
 
 Quick tips:
