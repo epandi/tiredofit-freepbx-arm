@@ -43,15 +43,17 @@ services:
       - DB_EMBEDDED=TRUE
 
      ### These are only necessary if DB_EMBEDDED=FALSE
-     # - DB_HOST=freepbx-db
-     # - DB_PORT=3306
-     # - DB_NAME=asterisk
-     # - DB_USER=asterisk
-     # - DB_PASS=asteriskpass
+     #- DB_HOST=freepbx-db
+     #- DB_PORT=3306
+     #- DB_NAME=asterisk
+     #- DB_USER=asterisk
+     #- DB_PASS=asteriskpass
 
      ### If you are using TLS Support for Apache to listen on 443 in the container drop them in /certs and set these:
      #- TLS_CERT=cert.pem
      #- TLS_KEY=key.pem
+     ### Set your desired timezone
+      - TZ= 'TimeZone'
 
     restart: always
     network_mode: "bridge"
