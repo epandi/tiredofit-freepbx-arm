@@ -81,7 +81,8 @@ services:
      ### If you are using TLS Support for Apache to listen on 443 in the container drop them in /certs and set these:
      #- TLS_CERT=cert.pem
      #- TLS_KEY=key.pem
-
+     ### Set your desired timezone
+      - TZ= 'TimeZone'
     restart: always
     network_mode: "bridge"
 
