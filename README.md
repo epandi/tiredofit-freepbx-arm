@@ -50,7 +50,7 @@ services:
       - /home/pi/Docker/asterisk17/db:/var/lib/mysql
      ### You can drop custom files overtop of the image if you have made modifications to modules/css/whatever - Use with care
      #- ./assets/custom:/assets/custom
-     ### Give the container access to the dongle/modem if you use Chan_dongle module.
+     ### Give the container access to the dongle/modem if you use Chan_dongle module.(Warning this will expose all usb devices to the container)
      #- /dev:/dev
 
     environment:
