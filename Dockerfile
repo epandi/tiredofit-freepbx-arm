@@ -269,6 +269,9 @@ RUN c_rehash && \
                     whois \
                     xmlstarlet && \
     \
+### Usbutils addon
+    apt-get install usbutils unzip autoconf automake -y && \
+    \  
 ### Add users
     addgroup --gid 2600 asterisk && \
     adduser --uid 2600 --gid 2600 --gecos "Asterisk User" --disabled-password asterisk && \
