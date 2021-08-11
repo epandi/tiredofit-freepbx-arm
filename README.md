@@ -30,10 +30,10 @@ version: '2'
 services:
   freepbx-app:
     container_name: freepbx-app
-    image: epandi/asterisk-freepbx-arm:17.15-latest
+    image: epandi/asterisk-freepbx-arm:17.15.1
     ports:
      #### If you aren't using a reverse proxy
-      - 80:80
+      - 8099:80
      #### If you want SSL Support and not using a reverse proxy
      #- 443:443
       - 5060:5060/udp
@@ -50,8 +50,6 @@ services:
       - /home/pi/Docker/asterisk17/db:/var/lib/mysql
      ### You can drop custom files overtop of the image if you have made modifications to modules/css/whatever - Use with care
      #- ./assets/custom:/assets/custom
-     ### Only Enable this if you use Chan_dongle/USB modem.
-     #- /dev:/dev
 
     environment:
       - VIRTUAL_HOST=asterisk.local
@@ -72,17 +70,18 @@ services:
       - DB_EMBEDDED=TRUE
 
      ### These are only necessary if DB_EMBEDDED=FALSE
-     # - DB_HOST=freepbx-db
-     # - DB_PORT=3306
-     # - DB_NAME=asterisk
-     # - DB_USER=asterisk
-     # - DB_PASS=asteriskpass
+     #- DB_HOST=freepbx-db
+     #- DB_PORT=3306
+     #- DB_NAME=asterisk
+     #- DB_USER=asterisk
+     #- DB_PASS=asteriskpass
 
      ### If you are using TLS Support for Apache to listen on 443 in the container drop them in /certs and set these:
      #- TLS_CERT=cert.pem
      #- TLS_KEY=key.pem
      ### Set your desired timezone
       - TZ= 'TimeZone'
+
     restart: always
     network_mode: "bridge"
 
@@ -90,6 +89,7 @@ services:
     cap_add:
       - NET_ADMIN
     privileged: true
+
 ```
 # Accessing the USB modem:
 
