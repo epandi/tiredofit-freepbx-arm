@@ -1,4 +1,4 @@
-FreePBX 15, Asterisk 17/18 on Docker (Raspberry Pi). An experimental fork of https://github.com/epandi/tiredofit-freepbx-arm.  
+# FreePBX 15, Asterisk 17/18 on Docker (Raspberry Pi). 
 
 Properly working with IVR and call forwarding to an extension on a Raspberry pi 4 32-bit architecture.
 
@@ -24,15 +24,16 @@ Not working:
 FOP - automatic intallation script can't find the proper package.
 Example docker-compose.yaml (change tag to 18.15-alpha instead of 17.15-latest, if you want Asterisk 18 instead of Asterisk 17)
 
+```
 version: '2'
 
 services:
   freepbx-app:
     container_name: freepbx-app
-    image: epandi/asterisk-freepbx-arm:17.15-latest
+    image: epandi/asterisk-freepbx-arm:17.15.1
     ports:
      #### If you aren't using a reverse proxy
-      - 80:80
+      - 8099:80
      #### If you want SSL Support and not using a reverse proxy
      #- 443:443
       - 5060:5060/udp
@@ -49,8 +50,6 @@ services:
       - /home/pi/Docker/asterisk17/db:/var/lib/mysql
      ### You can drop custom files overtop of the image if you have made modifications to modules/css/whatever - Use with care
      #- ./assets/custom:/assets/custom
-     ### Only Enable this if you use Chan_dongle/USB modem.
-     #- /dev:/dev
 
     environment:
       - VIRTUAL_HOST=asterisk.local
@@ -71,15 +70,17 @@ services:
       - DB_EMBEDDED=TRUE
 
      ### These are only necessary if DB_EMBEDDED=FALSE
-     # - DB_HOST=freepbx-db
-     # - DB_PORT=3306
-     # - DB_NAME=asterisk
-     # - DB_USER=asterisk
-     # - DB_PASS=asteriskpass
+     #- DB_HOST=freepbx-db
+     #- DB_PORT=3306
+     #- DB_NAME=asterisk
+     #- DB_USER=asterisk
+     #- DB_PASS=asteriskpass
 
      ### If you are using TLS Support for Apache to listen on 443 in the container drop them in /certs and set these:
      #- TLS_CERT=cert.pem
      #- TLS_KEY=key.pem
+     ### Set your desired timezone
+      - TZ= 'TimeZone'
 
     restart: always
     network_mode: "bridge"
@@ -89,17 +90,19 @@ services:
       - NET_ADMIN
     privileged: true
 
-Accessing the USB modem:
+```
+# Accessing the USB modem:
+
 You need to use sudo chmod 777 /dev/ttyUSB* on the host machine. 
 But, this is not persistent after reboot. To make it persistent after boot on your host machine
 
 sudo nano /etc/udev/rules.d/92-dongle.rules and add 
-
+```
 KERNEL=="ttyUSB*"
 MODE="0666"
 OWNER="asterisk"
 GROUP="uucp"
-
+```
 This will make the permission persistent. Source: https://wiki.e1550.mobi/doku.php?id=troubleshooting#
 
 Credits https://github.com/tiredofit/docker-freepbx
