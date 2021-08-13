@@ -253,5 +253,7 @@ See, at the bottom there two type of options audio,data and IMEI,IMSI. If you ha
 
 Credits: 
 https://github.com/tiredofit/docker-freepbx
+
 https://wiki.e1550.mobi/doku.php?id=troubleshooting#
+
 https://www.xmodulo.com/change-usb-device-permission-linux.html
