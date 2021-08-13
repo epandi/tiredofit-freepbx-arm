@@ -54,7 +54,7 @@ services:
      ### If you are using TLS Support for Apache to listen on 443 in the container drop them in /certs and set these:
      #- TLS_CERT=cert.pem
      #- TLS_KEY=key.pem
-     ### Set your desired timezone(If not set,UTC will be used as default. 
+     ### Set your desired timezone,If not then UTC will be used as default. 
      #- TZ=TimeZone
 
     restart: always
