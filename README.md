@@ -81,8 +81,8 @@ services:
      ### If you are using TLS Support for Apache to listen on 443 in the container drop them in /certs and set these:
      #- TLS_CERT=cert.pem
      #- TLS_KEY=key.pem
-     ### Set your desired timezone
-      - TZ= 'TimeZone'
+     ### Set your desired timezone(If not set,UTC will be used as default. 
+     #- TZ=TimeZone
 
     restart: always
     network_mode: "bridge"
@@ -107,4 +107,35 @@ GROUP="uucp"
 ```
 This will make the permission persistent. Source: https://wiki.e1550.mobi/doku.php?id=troubleshooting#
 
-Credits https://github.com/tiredofit/docker-freepbx
+But, in case you multiple types of devices connected to your host and only want to give dongle access to the container then on your host machine:
+
+```
+lsusb -vvv
+```
+Note the  idVendor(e.g.,067b) & idProduct(e.g.,2303). then again on the host 
+
+```
+sudo nano /etc/udev/rules.d/50-dongle.rules
+```
+and paste
+```
+SUBSYSTEMS=="usb"
+ATTRS{idVendor}=="067b"
+ATTRS{idProduct}=="2303"
+GROUP="uucp" 
+MODE="0666"
+```
+and 
+```
+sudo udevadm control --reload
+```
+or reboot.
+
+At this point your container should've access to the dongle.
+
+Now, you need to shell into the container file
+
+Credits: 
+https://github.com/tiredofit/docker-freepbx
+https://wiki.e1550.mobi/doku.php?id=troubleshooting#
+https://www.xmodulo.com/change-usb-device-permission-linux.html
