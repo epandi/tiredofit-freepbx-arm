@@ -142,8 +142,8 @@ To get container ID
 
 Now,
 ```
-$ asterisk -rvvv
 $ lsusb
+$ asterisk -rvvv
 $ dongle discovery
 
 ```
